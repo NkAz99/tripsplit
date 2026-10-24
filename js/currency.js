@@ -75,6 +75,38 @@ window.TripSplit = window.TripSplit || {};
     return Math.round(amountMinor * rate);
   }
 
+  // In-memory session fetch state to ensure status is LIVE ONLY when a fetch just succeeded
+  let sessionFetchState = {
+    isLive: false,
+    timestamp: null
+  };
+
+  function resetSessionState() {
+    sessionFetchState = {
+      isLive: false,
+      timestamp: null
+    };
+  }
+
+  function formatTime(timestamp) {
+    if (!timestamp) return '';
+    const d = new Date(timestamp);
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function formatDateTime(timestamp) {
+    if (!timestamp) return '';
+    const d = new Date(timestamp);
+    const pad = n => String(n).padStart(2, '0');
+    const y = d.getFullYear();
+    const m = pad(d.getMonth() + 1);
+    const day = pad(d.getDate());
+    const h = pad(d.getHours());
+    const min = pad(d.getMinutes());
+    return `${y}-${m}-${day} ${h}:${min}`;
+  }
+
   // Fetch live rates from open.er-api.com with 6s timeout
   async function fetchLiveRates(baseCurrency = 'AZN') {
     const controller = new AbortController();
@@ -82,33 +114,53 @@ window.TripSplit = window.TripSplit || {};
 
     try {
       const url = `https://open.er-api.com/v6/latest/${encodeURIComponent(baseCurrency)}`;
-      const response = await fetch(url, { signal: controller.signal });
+      // Requirement 3: Bypass HTTP cache so a stale cached response is never mistaken for live data
+      const response = await fetch(url, { signal: controller.signal, cache: 'no-store' });
       clearTimeout(timeoutId);
 
+      // Requirement 2: response.ok must be true
       if (!response.ok) {
         throw new Error(`HTTP error ${response.status}`);
       }
 
       const json = await response.json();
-      if (json && json.result === 'success' && json.rates) {
-        const rateInfo = {
-          base: baseCurrency,
-          rates: json.rates,
-          timestamp: Date.now(),
-          timeLastUpdateUtc: json.time_last_update_utc || new Date().toISOString(),
-          source: 'live'
-        };
-        // Save to storage cache
-        const data = window.TripSplit.storage.loadData();
-        data.cachedRates = rateInfo;
-        window.TripSplit.storage.saveData(data);
-        return { success: true, rateInfo };
-      } else {
-        throw new Error("Invalid API response format");
+
+      // Requirement 2: JSON result === "success" AND rates contains needed currencies
+      const requiredCodes = SUPPORTED_CURRENCIES.map(c => c.code);
+      const hasAllCurrencies = json && json.result === 'success' && json.rates &&
+        requiredCodes.every(code => typeof json.rates[code] === 'number' && json.rates[code] > 0);
+
+      if (!hasAllCurrencies) {
+        throw new Error("Invalid API response format or missing required currencies");
       }
+
+      // Requirement 1: Timestamp of last SUCCESSFUL network fetch saved in localStorage
+      const fetchTime = Date.now();
+      const rateInfo = {
+        base: baseCurrency,
+        rates: json.rates,
+        timestamp: fetchTime,
+        timeLastUpdateUtc: json.time_last_update_utc || new Date().toISOString()
+      };
+
+      // Save to storage cache
+      const data = window.TripSplit.storage.loadData();
+      data.cachedRates = rateInfo;
+      window.TripSplit.storage.saveData(data);
+
+      sessionFetchState = {
+        isLive: true,
+        timestamp: fetchTime
+      };
+
+      return { success: true, rateInfo };
     } catch (err) {
       clearTimeout(timeoutId);
-      // Silently fall back to cached or hardcoded fallback
+      // Requirement 2 & 4: On any failure, treat as failure, never mark as live, never update saved timestamp!
+      sessionFetchState = {
+        isLive: false,
+        timestamp: null
+      };
       return { success: false, error: err.message };
     }
   }
@@ -118,22 +170,37 @@ window.TripSplit = window.TripSplit || {};
     const data = window.TripSplit.storage.loadData();
     const cached = data.cachedRates;
 
-    if (cached && cached.rates) {
-      const ageHours = (Date.now() - cached.timestamp) / (1000 * 60 * 60);
-      const isOutdated = ageHours > 24;
+    // 1. Status is LIVE only if the network fetch just completed successfully in the current session
+    if (sessionFetchState.isLive && sessionFetchState.timestamp && cached && cached.rates) {
       return {
         rates: cached.rates,
         base: cached.base || 'AZN',
-        source: cached.source || 'cached',
-        timestamp: cached.timestamp,
-        isOutdated,
-        statusType: cached.source === 'live' ? 'live' : 'cached',
-        dateStr: new Date(cached.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        fullDateStr: new Date(cached.timestamp).toLocaleDateString()
+        source: 'live',
+        timestamp: sessionFetchState.timestamp,
+        isOutdated: false,
+        statusType: 'live',
+        dateStr: formatTime(sessionFetchState.timestamp),
+        fullDateStr: formatDateTime(sessionFetchState.timestamp)
       };
     }
 
-    // Hardcoded fallback
+    // 2. Cached rates from localStorage (from previous successful fetch)
+    if (cached && cached.rates && cached.timestamp) {
+      const ageMs = Date.now() - cached.timestamp;
+      const isOutdated = ageMs > (24 * 60 * 60 * 1000);
+      return {
+        rates: cached.rates,
+        base: cached.base || 'AZN',
+        source: 'cached',
+        timestamp: cached.timestamp,
+        isOutdated,
+        statusType: 'cached',
+        dateStr: formatTime(cached.timestamp),
+        fullDateStr: formatDateTime(cached.timestamp)
+      };
+    }
+
+    // 3. Hardcoded fallback
     return {
       rates: FALLBACK_RATES.rates,
       base: FALLBACK_RATES.base,
@@ -155,6 +222,7 @@ window.TripSplit = window.TripSplit || {};
     getExchangeRate,
     convertMinor,
     fetchLiveRates,
-    getActiveRates
+    getActiveRates,
+    resetSessionState
   };
 })();

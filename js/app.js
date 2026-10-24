@@ -344,6 +344,8 @@ window.TripSplit = window.TripSplit || {};
     if (notifyUser) {
       if (res.success) {
         showToast(t('rates_live', { time: activeRates.dateStr }));
+      } else if (activeRates.statusType === 'cached') {
+        showToast(t('rates_cached', { date: activeRates.fullDateStr }));
       } else {
         showToast(t('rates_fallback', { date: activeRates.dateStr }));
       }
@@ -1208,9 +1210,11 @@ window.TripSplit = window.TripSplit || {};
       // Rate snapshot computation
       let finalRate = 1.0;
       let rateSource = 'live';
+      let rateTimestamp = null;
       if (expCurrency === baseCurrency) {
         finalRate = 1.0;
         rateSource = 'base';
+        rateTimestamp = null;
       } else if (isOverridden) {
         if (isNaN(customRate) || customRate <= 0) {
           errorBox.textContent = t('err_invalid_rate');
@@ -1218,9 +1222,11 @@ window.TripSplit = window.TripSplit || {};
         }
         finalRate = customRate;
         rateSource = 'manual';
+        rateTimestamp = Date.now();
       } else {
         finalRate = currency.getExchangeRate(expCurrency, baseCurrency, activeRates);
         rateSource = activeRates.source;
+        rateTimestamp = activeRates.timestamp;
       }
 
       const filledSharesMinor = {};
@@ -1261,6 +1267,7 @@ window.TripSplit = window.TripSplit || {};
           baseCurrency,
           rate: finalRate,
           rateSource,
+          rateTimestamp,
           paidBy,
           date,
           splitType: splitMethod,

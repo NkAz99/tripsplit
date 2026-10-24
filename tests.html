@@ -130,7 +130,7 @@
   <script src="js/settlement.js"></script>
 
   <script>
-    const { settlement, currency } = window.TripSplit;
+    const { settlement, currency, storage } = window.TripSplit;
     const testResults = [];
 
     function assert(condition, message) {
@@ -139,15 +139,17 @@
       }
     }
 
-    function runTest(name, description, testFn) {
+    async function runTest(name, description, testFn) {
       try {
-        testFn();
+        await testFn();
         testResults.push({ name, description, passed: true });
       } catch (err) {
         console.error(`[FAIL] ${name}:`, err);
         testResults.push({ name, description, passed: false, error: err.message });
       }
     }
+
+    async function runAllTests() {
 
     // --- TEST 1: 10.00 split among 3 = exactly 10.00 total ---
     runTest(
@@ -773,31 +775,239 @@
       }
     );
 
-    // Render results
-    const container = document.getElementById('testContainer');
-    const summaryEl = document.getElementById('testSummary');
-    let passedCount = 0;
+    // --- TEST 18: Live Rate Fetch with Mocked Network Success ---
+    await runTest(
+      "Case 18: Rates Fetch (Success) → Live Status + New Timestamp Saved",
+      "Mock successful fetch: verify status becomes 'live', new timestamp saved in localStorage, and no-store cache control used.",
+      async () => {
+        const originalFetch = window.fetch;
+        try {
+          let requestedCacheOption = null;
+          window.fetch = async (url, options) => {
+            requestedCacheOption = options ? options.cache : null;
+            return {
+              ok: true,
+              json: async () => ({
+                result: 'success',
+                rates: { AZN: 1.0, USD: 0.5882, EUR: 0.5412, TRY: 20.1176, GBP: 0.4588, RUB: 56.7647 }
+              })
+            };
+          };
 
-    testResults.forEach(res => {
-      if (res.passed) passedCount++;
-      const card = document.createElement('div');
-      card.className = 'test-card';
-      card.innerHTML = `
-        <div>
-          <div class="test-name">${res.name}</div>
-          <div class="test-desc">${res.description}</div>
-          ${res.error ? `<div style="color:var(--fail);font-size:0.8rem;margin-top:0.3rem;">Error: ${res.error}</div>` : ''}
-        </div>
-        <div class="badge ${res.passed ? 'badge-pass' : 'badge-fail'}">
-          ${res.passed ? '✓ PASS' : '✗ FAIL'}
-        </div>
-      `;
-      container.appendChild(card);
-    });
+          const beforeTime = Date.now();
+          const res = await currency.fetchLiveRates('AZN');
+          const afterTime = Date.now();
 
-    const allPassed = (passedCount === testResults.length);
-    summaryEl.textContent = `${passedCount} / ${testResults.length} Tests Passed`;
-    summaryEl.className = `summary-badge ${allPassed ? 'summary-pass' : 'summary-fail'}`;
+          assert(res.success === true, "fetchLiveRates must succeed on ok response with valid rates");
+          assert(requestedCacheOption === 'no-store', "fetch must use cache: 'no-store'");
+
+          const active = currency.getActiveRates();
+          assert(active.statusType === 'live', `Status must be 'live', got '${active.statusType}'`);
+          assert(active.source === 'live', `Source must be 'live', got '${active.source}'`);
+          assert(active.timestamp >= beforeTime && active.timestamp <= afterTime, "Timestamp must be the real fetch time");
+          assert(active.isOutdated === false, "Live rates must not be outdated");
+
+          // Verify saved in localStorage
+          const savedData = storage.loadData();
+          assert(savedData.cachedRates && savedData.cachedRates.timestamp === active.timestamp, "Timestamp must be saved in localStorage");
+        } finally {
+          window.fetch = originalFetch;
+        }
+      }
+    );
+
+    // --- TEST 19: Rates Fetch (Network Error) → Cached Status + Old Timestamp Kept ---
+    await runTest(
+      "Case 19: Rates Fetch (Network Error) → Cached Status + Old Timestamp Kept",
+      "Mock network failure (offline/airplane mode): verify cached rates are used and saved timestamp is not updated.",
+      async () => {
+        const originalFetch = window.fetch;
+        try {
+          // Pre-populate cache with an old timestamp (e.g. 2 hours ago)
+          const oldTimestamp = Date.now() - (2 * 60 * 60 * 1000);
+          const data = storage.loadData();
+          data.cachedRates = {
+            base: 'AZN',
+            rates: { AZN: 1.0, USD: 0.58, EUR: 0.54, TRY: 20.0, GBP: 0.45, RUB: 56.0 },
+            timestamp: oldTimestamp
+          };
+          storage.saveData(data);
+          currency.resetSessionState();
+
+          window.fetch = async () => {
+            throw new TypeError("Failed to fetch (device offline)");
+          };
+
+          const res = await currency.fetchLiveRates('AZN');
+          assert(res.success === false, "fetchLiveRates must return success: false on network error");
+
+          const active = currency.getActiveRates();
+          assert(active.statusType === 'cached', `Status must be 'cached', got '${active.statusType}'`);
+          assert(active.source === 'cached', `Source must be 'cached', got '${active.source}'`);
+          assert(active.timestamp === oldTimestamp, `Timestamp must stay oldTimestamp (${oldTimestamp}), got ${active.timestamp}`);
+          assert(active.isOutdated === false, "Rates from 2 hours ago should not be outdated (>24h)");
+
+          // Ensure localStorage timestamp was never updated
+          const savedData = storage.loadData();
+          assert(savedData.cachedRates.timestamp === oldTimestamp, "localStorage timestamp must not change on failure");
+        } finally {
+          window.fetch = originalFetch;
+        }
+      }
+    );
+
+    // --- TEST 20: Rates Fetch (Bad JSON / Missing Currencies) → Cached Status ---
+    await runTest(
+      "Case 20: Rates Fetch (Invalid API Response / Incomplete Rates) → Treated as Failure & Keeps Cached",
+      "Mock response with missing required currencies or error result: treat as failure and use cached rates.",
+      async () => {
+        const originalFetch = window.fetch;
+        try {
+          const oldTimestamp = Date.now() - (5 * 60 * 1000);
+          const data = storage.loadData();
+          data.cachedRates = {
+            base: 'AZN',
+            rates: { AZN: 1.0, USD: 0.5882, EUR: 0.5412, TRY: 20.1176, GBP: 0.4588, RUB: 56.7647 },
+            timestamp: oldTimestamp
+          };
+          storage.saveData(data);
+          currency.resetSessionState();
+
+          // 1. Missing currencies in response
+          window.fetch = async () => ({
+            ok: true,
+            json: async () => ({
+              result: 'success',
+              rates: { AZN: 1.0, USD: 0.5882 } // missing EUR, TRY, GBP, RUB
+            })
+          });
+
+          const res1 = await currency.fetchLiveRates('AZN');
+          assert(res1.success === false, "Must fail when required currencies are missing");
+          let active = currency.getActiveRates();
+          assert(active.statusType === 'cached', "Status must remain cached");
+
+          // 2. Result !== success
+          window.fetch = async () => ({
+            ok: true,
+            json: async () => ({
+              result: 'error',
+              'error-type': 'unsupported-code'
+            })
+          });
+
+          const res2 = await currency.fetchLiveRates('AZN');
+          assert(res2.success === false, "Must fail when result !== success");
+          active = currency.getActiveRates();
+          assert(active.statusType === 'cached', "Status must remain cached on API error response");
+          assert(active.timestamp === oldTimestamp, "Timestamp must not be updated");
+        } finally {
+          window.fetch = originalFetch;
+        }
+      }
+    );
+
+    // --- TEST 21: Rates Fetch (No Cache + Failure) → Fallback Status & Warning ---
+    await runTest(
+      "Case 21: Rates Fetch (No Cache + Network Failure) → Fallback Status & Outdated Warning",
+      "With cleared cache and network failure: verify fallback rates are used, statusType is 'fallback', and isOutdated is true.",
+      async () => {
+        const originalFetch = window.fetch;
+        try {
+          // Clear cache
+          const data = storage.loadData();
+          delete data.cachedRates;
+          storage.saveData(data);
+          currency.resetSessionState();
+
+          window.fetch = async () => {
+            throw new Error("Network connection lost");
+          };
+
+          const res = await currency.fetchLiveRates('AZN');
+          assert(res.success === false, "fetchLiveRates must return success: false");
+
+          const active = currency.getActiveRates();
+          assert(active.statusType === 'fallback', `Status must be 'fallback', got '${active.statusType}'`);
+          assert(active.source === 'fallback', `Source must be 'fallback', got '${active.source}'`);
+          assert(active.isOutdated === true, "Fallback rates must trigger isOutdated: true");
+          assert(active.dateStr === currency.FALLBACK_RATES.date, `Fallback dateStr must be ${currency.FALLBACK_RATES.date}`);
+        } finally {
+          window.fetch = originalFetch;
+        }
+      }
+    );
+
+    // --- TEST 22: Expense Rate Snapshot Stores Real Source & Timestamp ---
+    await runTest(
+      "Case 22: Expense Rate Snapshot Stores Real Source and Timestamp (Not Current Time)",
+      "Verify expense rateSnapshot preserves the active rates source and real timestamp across live, cached, and fallback.",
+      () => {
+        // Cached expense
+        const cachedTimestamp = Date.now() - (3 * 3600 * 1000);
+        const expCached = settlement.buildExpense({
+          title: 'Cached Rate Expense',
+          amountMinor: 5000,
+          currency: 'USD',
+          baseCurrency: 'AZN',
+          rate: 1.70,
+          rateSource: 'cached',
+          rateTimestamp: cachedTimestamp,
+          paidBy: 'p1',
+          splitType: 'equal',
+          splitAmong: ['p1', 'p2']
+        });
+        assert(expCached.rateSnapshot.source === 'cached', "Snapshot source should be cached");
+        assert(expCached.rateSnapshot.timestamp === cachedTimestamp, "Snapshot timestamp must match cachedTimestamp");
+        assert(expCached.rateSnapshot.date === new Date(cachedTimestamp).toISOString().split('T')[0], "Snapshot date should match timestamp date");
+
+        // Fallback expense
+        const fallbackTimestamp = new Date(currency.FALLBACK_RATES.date).getTime();
+        const expFallback = settlement.buildExpense({
+          title: 'Fallback Rate Expense',
+          amountMinor: 5000,
+          currency: 'USD',
+          baseCurrency: 'AZN',
+          rate: 1.70,
+          rateSource: 'fallback',
+          rateTimestamp: fallbackTimestamp,
+          paidBy: 'p1',
+          splitType: 'equal',
+          splitAmong: ['p1', 'p2']
+        });
+        assert(expFallback.rateSnapshot.source === 'fallback', "Snapshot source should be fallback");
+        assert(expFallback.rateSnapshot.timestamp === fallbackTimestamp, "Snapshot timestamp must match fallbackTimestamp");
+      }
+    );
+
+      // Render results
+      const container = document.getElementById('testContainer');
+      const summaryEl = document.getElementById('testSummary');
+      let passedCount = 0;
+
+      testResults.forEach(res => {
+        if (res.passed) passedCount++;
+        const card = document.createElement('div');
+        card.className = 'test-card';
+        card.innerHTML = `
+          <div>
+            <div class="test-name">${res.name}</div>
+            <div class="test-desc">${res.description}</div>
+            ${res.error ? `<div style="color:var(--fail);font-size:0.8rem;margin-top:0.3rem;">Error: ${res.error}</div>` : ''}
+          </div>
+          <div class="badge ${res.passed ? 'badge-pass' : 'badge-fail'}">
+            ${res.passed ? '✓ PASS' : '✗ FAIL'}
+          </div>
+        `;
+        container.appendChild(card);
+      });
+
+      const allPassed = (passedCount === testResults.length);
+      summaryEl.textContent = `${passedCount} / ${testResults.length} Tests Passed`;
+      summaryEl.className = `summary-badge ${allPassed ? 'summary-pass' : 'summary-fail'}`;
+    }
+
+    runAllTests();
   </script>
 </body>
 </html>

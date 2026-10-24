@@ -164,6 +164,7 @@ window.TripSplit = window.TripSplit || {};
     baseCurrency,
     rate = 1.0,
     rateSource = 'live',
+    rateTimestamp = null,
     paidBy,
     date = new Date().toISOString().split('T')[0],
     splitType = 'equal',
@@ -226,7 +227,10 @@ window.TripSplit = window.TripSplit || {};
         to: baseCurrency,
         rate,
         source: rateSource,
-        date: new Date().toISOString().split('T')[0]
+        timestamp: rateTimestamp !== null ? rateTimestamp : (rateSource === 'base' ? null : Date.now()),
+        date: rateTimestamp
+          ? (typeof rateTimestamp === 'number' ? new Date(rateTimestamp).toISOString().split('T')[0] : String(rateTimestamp))
+          : new Date().toISOString().split('T')[0]
       },
       convertedAmountMinor
     };
