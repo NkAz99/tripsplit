@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TripSplit - Qrup Səyahətləri üçün Xərc Bölüşdürücü</title>
+  <!-- Online enhancement only: Inter font. Falls back cleanly to system-ui when offline -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand-wrapper" id="brandHomeLink">
+        <div class="brand-icon">✈️</div>
+        <div>
+          <div class="brand-title">TripSplit</div>
+          <div class="brand-tag" data-i18n="app_tagline">Qrup Səyahətləri üçün Xərc Bölüşdürücü</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <!-- Language Switcher -->
+        <button class="lang-btn" data-lang="az">🇦🇿 AZ</button>
+        <button class="lang-btn" data-lang="en">🇬🇧 EN</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Network & Rates Status Bar -->
+  <div class="status-bar-container">
+    <div class="status-bar">
+      <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+        <span id="networkStatusBadge" class="badge badge-online">Onlayn</span>
+        <span id="ratesStatusBadge" class="badge badge-live">🟢 Canlı məzənnələr</span>
+        <button id="refreshRatesBtn" class="rates-refresh-btn" data-i18n-title="refresh_rates">
+          🔄 <span data-i18n="refresh_rates">Məzənnələri Yenilə</span>
+        </button>
+      </div>
+      <div style="display:flex;gap:0.5rem;align-items:center;">
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0;">
+          📥 <span data-i18n="import_data">İdxal et (JSON)</span>
+          <input type="file" id="importJsonInput" accept=".json" style="display:none;">
+        </label>
+        <button id="exportJsonBtn" class="btn btn-secondary btn-sm">
+          📤 <span data-i18n="export_data">İxrac et (JSON)</span>
+        </button>
+        <button id="resetAllDataBtn" class="btn btn-danger btn-sm" data-i18n="reset_all_data">
+          ⚠️ Sıfırla
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Outdated Rates Warning Banner -->
+  <div id="ratesWarningBanner" class="alert-banner alert-warning" style="display:none;max-width:1180px;margin:0.75rem auto 0 auto;">
+    <span>⚠️</span>
+    <span data-i18n="rates_outdated_warning">Diqqət: Məzənnələr 24 saatdan köhnədir.</span>
+  </div>
+
+  <!-- LocalStorage Fallback Warning Banner -->
+  <div id="storageWarningBanner" class="alert-banner alert-danger" style="display:none;max-width:1180px;margin:0.75rem auto 0 auto;">
+    <span>⚠️</span>
+    <span data-i18n="storage_warning">Diqqət: Brauzer yaddaşı (localStorage) işləmir. Məlumatlar yalnız cari baxış üçün yaddaşda qalacaq.</span>
+  </div>
+
+  <!-- Main View Area -->
+  <main class="main-wrapper">
+
+    <!-- VIEW 1: DASHBOARD (Trip List) -->
+    <section id="dashboardSection" class="view-section active">
+      <div class="page-title-row">
+        <div>
+          <h1 class="page-title" data-i18n="trips_title">Səyahətlərim</h1>
+        </div>
+        <div class="title-actions">
+          <button id="newTripBtn" class="btn btn-primary">
+            + <span data-i18n="new_trip">Yeni Səyahət</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Trips Grid -->
+      <div id="tripsGrid" class="trips-grid"></div>
+
+      <!-- Empty State -->
+      <div id="tripsEmptyState" class="empty-state" style="display:none;">
+        <div class="empty-state-icon">🗺️</div>
+        <div class="empty-state-title" data-i18n="no_trips">Hələ heç bir səyahət yaradılmayıb.</div>
+      </div>
+    </section>
+
+    <!-- VIEW 2: TRIP DETAILS -->
+    <section id="tripSection" class="view-section">
+      <!-- Navigation Bar -->
+      <div class="trip-nav-bar">
+        <button id="backToTripsBtn" class="btn btn-secondary btn-sm" data-i18n="back_to_trips">
+          ← Səyahətlər
+        </button>
+        <div style="display:flex;gap:0.5rem;">
+          <button id="renameTripBtn" class="btn btn-secondary btn-sm">
+            ✏️ <span data-i18n="rename">Adı Dəyiş</span>
+          </button>
+          <button id="deleteTripBtn" class="btn btn-danger btn-sm">
+            🗑️ <span data-i18n="delete">Sil</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Hero Card -->
+      <div class="trip-hero">
+        <div class="trip-hero-top">
+          <h2 id="tripHeroTitle" class="trip-hero-title">Səyahət</h2>
+          <span id="tripBaseCurrencyBadge" class="badge badge-live">AZN</span>
+        </div>
+        <div class="trip-hero-cost-box">
+          <div class="trip-hero-cost-label" data-i18n="total_trip_cost">Ümumi Səyahət Xərci</div>
+          <div id="tripTotalCostDisplay" class="trip-hero-cost-val">0.00 ₼</div>
+        </div>
+      </div>
+
+      <!-- Layout: 2 Columns on Desktop -->
+      <div class="trip-dashboard-grid">
+
+        <!-- Left Column: Expenses & Participants -->
+        <div>
+          <!-- Participants Section -->
+          <div class="card-section">
+            <div class="card-section-header">
+              <h3 class="card-section-title">
+                👥 <span data-i18n="participants">İştirakçılar</span>
+              </h3>
+            </div>
+            <div id="participantsChipsContainer" class="participants-chips"></div>
+
+            <form id="addParticipantForm" class="add-participant-inline">
+              <input type="text" id="newParticipantNameInput" class="input-text" placeholder="İştirakçı adı" data-i18n-placeholder="participant_name_placeholder" required>
+              <button type="submit" class="btn btn-primary btn-sm" data-i18n="add_participant">
+                + Əlavə et
+              </button>
+            </form>
+          </div>
+
+          <!-- Expenses Section -->
+          <div class="card-section">
+            <div class="card-section-header">
+              <h3 class="card-section-title">
+                🧾 <span data-i18n="expenses">Xərclər</span>
+              </h3>
+              <button id="addExpenseBtn" class="btn btn-primary btn-sm" data-i18n="add_expense">
+                + Yeni Xərc
+              </button>
+            </div>
+
+            <div id="expensesListContainer" class="expenses-list"></div>
+            <div id="noExpensesNotice" class="empty-state" style="display:none;padding:1.5rem;">
+              <p data-i18n="no_expenses">Hələ xərc əlavə edilməyib.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Balances, Settlement, Analytics & Converter -->
+        <div>
+          <!-- Balances Card -->
+          <div class="card-section">
+            <div class="card-section-header">
+              <h3 class="card-section-title">
+                ⚖️ <span data-i18n="balances">Balanslar</span>
+              </h3>
+            </div>
+            <div id="balancesListContainer" class="balances-list"></div>
+          </div>
+
+          <!-- Who Owes Whom (Settlement) Card -->
+          <div class="card-section">
+            <div class="card-section-header">
+              <h3 class="card-section-title">
+                💸 <span data-i18n="who_owes_whom">Kimin Kimə Nə Qədər Borcu Var</span>
+              </h3>
+              <button id="copySummaryBtn" class="btn btn-secondary btn-sm" data-i18n="copy_summary">
+                📋 Kopyala
+              </button>
+            </div>
+
+            <div id="transfersListContainer" class="transfers-list"></div>
+            <div id="allSettledNotice" class="empty-state" style="display:none;padding:1.5rem;">
+              <div style="font-size:1.5rem;margin-bottom:0.25rem;">🎉</div>
+              <p data-i18n="all_settled">Bütün hesablar bərabərdir! Heç kimin borcu yoxdur.</p>
+            </div>
+
+            <!-- Settlement History with Undo -->
+            <div style="margin-top:1.25rem;border-top:1px solid var(--neutral-200);padding-top:0.75rem;">
+              <h4 style="font-size:0.85rem;font-weight:700;color:var(--neutral-600);margin-bottom:0.5rem;" data-i18n="settlement_history">
+                Ödəniş Tarixçəsi
+              </h4>
+              <div id="settlementHistoryContainer" class="settlement-history-list"></div>
+              <p id="noSettlementsNotice" style="font-size:0.75rem;color:var(--neutral-400);" data-i18n="no_settlements">
+                Hələ heç bir ödəniş qeydə alınmayıb.
+              </p>
+            </div>
+          </div>
+
+          <!-- Category Breakdown Card -->
+          <div class="card-section">
+            <div class="card-section-header">
+              <h3 class="card-section-title">
+                📊 <span data-i18n="category_breakdown">Kateqoriyalar üzrə Xərclər</span>
+              </h3>
+            </div>
+            <div id="categoryBreakdownContainer" class="category-bars"></div>
+          </div>
+
+          <!-- Standalone Currency Converter Widget -->
+          <div class="converter-card">
+            <h3 class="card-section-title" style="margin-bottom:0.75rem;">
+              💱 <span data-i18n="currency_converter">Valyuta Konverteri</span>
+            </h3>
+            <div class="form-group">
+              <input type="number" id="converterAmount" class="input-text" value="100" min="0" step="0.01">
+            </div>
+            <div class="converter-controls">
+              <select id="converterFrom" class="form-select" style="flex:1;"></select>
+              <button id="swapConverterBtn" class="converter-swap-btn" title="Dəyiş">⇄</button>
+              <select id="converterTo" class="form-select" style="flex:1;"></select>
+            </div>
+            <div id="converterResult" class="converter-result-box">
+              100.00 USD = 170.00 AZN
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODAL 1: NEW TRIP -->
+  <div id="newTripModal" class="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 class="modal-title" data-i18n="new_trip">Yeni Səyahət</h3>
+        <button class="modal-close-btn" data-close-modal>×</button>
+      </div>
+      <form id="newTripForm">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label" data-i18n="trip_name">Səyahətin Adı</label>
+            <input type="text" id="newTripName" class="input-text" placeholder="məs. Bakı Həftəsonu" data-i18n-placeholder="trip_name_placeholder" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" data-i18n="base_currency">Əsas Valyuta</label>
+            <select id="newTripCurrency" class="form-select">
+              <option value="AZN" selected>AZN (₼) - Azərbaycan Manatı</option>
+              <option value="USD">USD ($) - US Dollar</option>
+              <option value="EUR">EUR (€) - Euro</option>
+              <option value="TRY">TRY (₺) - Türk Lirası</option>
+              <option value="GBP">GBP (£) - British Pound</option>
+              <option value="RUB">RUB (₽) - Rusiya Rublu</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal data-i18n="cancel">Ləğv et</button>
+          <button type="submit" class="btn btn-primary" data-i18n="create">Yarat</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL 2: RENAME TRIP -->
+  <div id="renameTripModal" class="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 class="modal-title" data-i18n="rename">Adı Dəyiş</h3>
+        <button class="modal-close-btn" data-close-modal>×</button>
+      </div>
+      <form id="renameTripForm">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label" data-i18n="trip_name">Səyahətin Adı</label>
+            <input type="text" id="renameTripInput" class="input-text" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal data-i18n="cancel">Ləğv et</button>
+          <button type="submit" class="btn btn-primary" data-i18n="save">Yadda Saxla</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: EDIT PARTICIPANT NAME -->
+  <div id="editParticipantModal" class="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 class="modal-title" data-i18n="edit_participant">İştirakçının Adını Dəyiş</h3>
+        <button class="modal-close-btn" data-close-modal>×</button>
+      </div>
+      <form id="editParticipantForm">
+        <div class="modal-body">
+          <div id="editParticipantFormError" class="form-error"></div>
+          <input type="hidden" id="editParticipantId">
+          <div class="form-group">
+            <label class="form-label" data-i18n="participant_name_placeholder">İştirakçı adı</label>
+            <input type="text" id="editParticipantNameInput" class="input-text" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal data-i18n="cancel">Ləğv et</button>
+          <button type="submit" class="btn btn-primary" data-i18n="save">Yadda Saxla</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL 3: DELETE TRIP CONFIRMATION -->
+  <div id="deleteTripModal" class="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 class="modal-title" data-i18n="delete">Səyahəti Sil</h3>
+        <button class="modal-close-btn" data-close-modal>×</button>
+      </div>
+      <div class="modal-body">
+        <p id="deleteTripPrompt" style="font-size:0.9rem;color:var(--neutral-700);"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal data-i18n="cancel">Ləğv et</button>
+        <button type="button" id="confirmDeleteTripBtn" class="btn btn-danger" data-i18n="delete">Sil</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 4: RESET ALL CONFIRMATION -->
+  <div id="resetConfirmModal" class="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 class="modal-title" data-i18n="reset_all_data">Bütün Məlumatları Sıfırla</h3>
+        <button class="modal-close-btn" data-close-modal>×</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:0.9rem;color:var(--neutral-700);" data-i18n="confirm_reset_all">
+          Bütün səyahətlər və məlumatlar birdəfəlik silinəcək. Davam etmək istəyirsinizmi?
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal data-i18n="cancel">Ləğv et</button>
+        <button type="button" id="confirmResetBtn" class="btn btn-danger" data-i18n="reset_all_data">Sıfırla</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 5: ADD / EDIT EXPENSE -->
+  <div id="expenseModal" class="modal-overlay">
+    <div class="modal-container" style="max-width: 580px;">
+      <div class="modal-header">
+        <h3 id="expenseModalTitle" class="modal-title" data-i18n="add_expense">Yeni Xərc</h3>
+        <button class="modal-close-btn" data-close-modal>×</button>
+      </div>
+      <form id="expenseForm">
+        <div class="modal-body">
+          <div id="expenseFormErrors" class="form-error"></div>
+
+          <!-- Title -->
+          <div class="form-group">
+            <label class="form-label" data-i18n="expense_title">Xərcin Təsviri / Adı</label>
+            <input type="text" id="expenseTitle" class="input-text" placeholder="məs. Şam yeməyi, Yanacaq" data-i18n-placeholder="expense_title_placeholder" required>
+          </div>
+
+          <!-- Category & Date -->
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" data-i18n="category">Kateqoriya</label>
+              <select id="expenseCategory" class="form-select">
+                <option value="food" data-i18n="cat_food">Qida & Restoran 🍔</option>
+                <option value="transport" data-i18n="cat_transport">Nəqliyyat & Yanacaq 🚕</option>
+                <option value="accommodation" data-i18n="cat_accommodation">Qonaqlama & Otel 🏨</option>
+                <option value="entertainment" data-i18n="cat_entertainment">Əyləncə & Biletlər 🎟️</option>
+                <option value="other" data-i18n="cat_other">Digər Xərclər 📦</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" data-i18n="date">Tarix</label>
+              <input type="date" id="expenseDate" class="input-text" required>
+            </div>
+          </div>
+
+          <!-- Amount & Currency -->
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" data-i18n="amount">Məbləğ</label>
+              <input type="number" id="expenseAmount" class="input-text" step="0.01" min="0.01" placeholder="0.00" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" data-i18n="currency">Valyuta</label>
+              <select id="expenseCurrency" class="form-select"></select>
+            </div>
+          </div>
+
+          <!-- Rate Snapshot preview & override -->
+          <div style="background:var(--neutral-100);padding:0.75rem;border-radius:var(--radius-md);border:1px solid var(--neutral-200);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+              <span style="font-size:0.75rem;font-weight:600;color:var(--neutral-600);" data-i18n="rate_snapshot">Qeydə alınmış məzənnə</span>
+              <span id="expenseRatePreview" style="font-size:0.8rem;font-weight:700;color:var(--primary);">1 AZN = 1.00 AZN</span>
+            </div>
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;cursor:pointer;">
+              <input type="checkbox" id="overrideRateCheckbox">
+              <span data-i18n="override_rate">Məzənnəni fərdi təyin et</span>
+            </label>
+            <div id="overrideRateBox" style="display:none;margin-top:0.5rem;">
+              <input type="number" id="customRateInput" class="input-text" step="0.0001" min="0.0001" placeholder="məs. 1.70" data-i18n-placeholder="rate_override_placeholder">
+            </div>
+          </div>
+
+          <!-- Paid By -->
+          <div class="form-group">
+            <label class="form-label" data-i18n="paid_by">Kim Ödədi?</label>
+            <select id="expensePaidBy" class="form-select" required></select>
+          </div>
+
+          <!-- Split Method -->
+          <div class="form-group">
+            <label class="form-label" data-i18n="split_method">Bölüşdürmə Növü</label>
+            <div style="display:flex;gap:1rem;margin-top:0.25rem;">
+              <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.875rem;cursor:pointer;">
+                <input type="radio" name="splitMethod" value="equal" checked>
+                <span data-i18n="split_equal">Bərabər Bölüşdür</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.875rem;cursor:pointer;">
+                <input type="radio" name="splitMethod" value="custom">
+                <span data-i18n="split_custom">Fərdi Məbləğlərlə</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Split Among Whom Checkboxes -->
+          <div class="form-group">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <label class="form-label" data-i18n="split_among">Kimlər Arasında Bölünsün?</label>
+              <div style="display:flex;gap:0.5rem;">
+                <button type="button" id="selectAllParticipantsBtn" class="btn btn-secondary btn-sm" style="padding:0.15rem 0.4rem;font-size:0.75rem;" data-i18n="select_all">Hamısını seç</button>
+                <button type="button" id="deselectAllParticipantsBtn" class="btn btn-secondary btn-sm" style="padding:0.15rem 0.4rem;font-size:0.75rem;" data-i18n="deselect_all">Hamısını sil</button>
+              </div>
+            </div>
+            <div id="splitCheckboxesContainer" class="checkbox-grid"></div>
+          </div>
+
+          <!-- Custom Split Section -->
+          <div id="customSplitSection" style="display:none;" class="form-group">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;">
+              <label class="form-label" data-i18n="custom_amounts_title">Fərdi Hissələr</label>
+              <div id="splitDiffBadge" class="split-diff-badge mismatch">Qalan fərq: 0.00</div>
+            </div>
+            <div id="customSplitRowsContainer" class="custom-split-container"></div>
+          </div>
+
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal data-i18n="cancel">Ləğv et</button>
+          <button type="submit" id="saveExpenseBtn" class="btn btn-primary" data-i18n="save">Yadda Saxla</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Application Scripts in Exact Classic Order (window.TripSplit namespace) -->
+  <script src="js/i18n.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/currency.js"></script>
+  <script src="js/settlement.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

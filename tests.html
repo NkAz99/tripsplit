@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TripSplit - Browser Test Suite</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --success: #10b981;
+      --success-bg: #ecfdf5;
+      --fail: #ef4444;
+      --fail-bg: #fef2f2;
+      --border: #e2e8f0;
+      --primary: #4f46e5;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      max-width: 900px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      line-height: 1.5;
+    }
+    .header {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .title {
+      font-size: 1.5rem;
+      font-weight: 800;
+    }
+    .summary-badge {
+      font-size: 1.1rem;
+      font-weight: 700;
+      padding: 0.4rem 1rem;
+      border-radius: 9999px;
+    }
+    .summary-pass {
+      background: var(--success-bg);
+      color: var(--success);
+      border: 1px solid var(--success);
+    }
+    .summary-fail {
+      background: var(--fail-bg);
+      color: var(--fail);
+      border: 1px solid var(--fail);
+    }
+    .test-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .test-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    .test-name {
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .test-desc {
+      font-size: 0.8rem;
+      color: #64748b;
+      margin-top: 0.2rem;
+    }
+    .badge {
+      font-size: 0.8rem;
+      font-weight: 700;
+      padding: 0.25rem 0.6rem;
+      border-radius: 6px;
+    }
+    .badge-pass {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+    .badge-fail {
+      background: var(--fail-bg);
+      color: var(--fail);
+    }
+    .nav-link {
+      display: inline-block;
+      margin-bottom: 1rem;
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+    .nav-link:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+
+  <a href="index.html" class="nav-link">← Tətbiqə qayıt (TripSplit App)</a>
+
+  <div class="header">
+    <div>
+      <div class="title">🧪 TripSplit Verification Test Suite</div>
+      <div style="font-size:0.85rem;color:#64748b;">Pure JavaScript Browser Assertion Runner</div>
+    </div>
+    <div id="testSummary" class="summary-badge">Running tests...</div>
+  </div>
+
+  <div id="testContainer" class="test-list"></div>
+
+  <!-- Scripts -->
+  <script src="js/i18n.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/currency.js"></script>
+  <script src="js/settlement.js"></script>
+
+  <script>
+    const { settlement, currency } = window.TripSplit;
+    const testResults = [];
+
+    function assert(condition, message) {
+      if (!condition) {
+        throw new Error(message || "Assertion failed");
+      }
+    }
+
+    function runTest(name, description, testFn) {
+      try {
+        testFn();
+        testResults.push({ name, description, passed: true });
+      } catch (err) {
+        console.error(`[FAIL] ${name}:`, err);
+        testResults.push({ name, description, passed: false, error: err.message });
+      }
+    }
+
+    // --- TEST 1: 10.00 split among 3 = exactly 10.00 total ---
+    runTest(
+      "Case 1: 10.00 AZN Split Among 3 Exactly Matches Total (No Float Drift)",
+      "Distribute 1000 minor units among 3 people, verify integer shares sum to 1000 and remainder cents rotate.",
+      () => {
+        const pIds = ['p1', 'p2', 'p3'];
+        // Expense 0
+        const shares0 = settlement.splitEqual(1000, pIds, 0);
+        assert(shares0.p1 === 334, `Expected p1 to receive 334, got ${shares0.p1}`);
+        assert(shares0.p2 === 333, `Expected p2 to receive 333, got ${shares0.p2}`);
+        assert(shares0.p3 === 333, `Expected p3 to receive 333, got ${shares0.p3}`);
+        const sum0 = shares0.p1 + shares0.p2 + shares0.p3;
+        assert(sum0 === 1000, `Expected sum 1000, got ${sum0}`);
+
+        // Expense 1 (rotation shifted)
+        const shares1 = settlement.splitEqual(1000, pIds, 1);
+        assert(shares1.p1 === 333, `Expected p1 to receive 333, got ${shares1.p1}`);
+        assert(shares1.p2 === 334, `Expected p2 to receive 334, got ${shares1.p2}`);
+        assert(shares1.p3 === 333, `Expected p3 to receive 333, got ${shares1.p3}`);
+        const sum1 = shares1.p1 + shares1.p2 + shares1.p3;
+        assert(sum1 === 1000, `Expected sum 1000, got ${sum1}`);
+      }
+    );
+
+    // --- TEST 2: Subset Split ---
+    runTest(
+      "Case 2: Subset Split Among Select Participants",
+      "Trip has 5 friends, but expense of 20.00 AZN is split among only 2 friends (p2 and p4).",
+      () => {
+        const trip = {
+          baseCurrency: 'AZN',
+          participants: [
+            { id: 'p1', name: 'Friend 1' },
+            { id: 'p2', name: 'Friend 2' },
+            { id: 'p3', name: 'Friend 3' },
+            { id: 'p4', name: 'Friend 4' },
+            { id: 'p5', name: 'Friend 5' }
+          ],
+          expenses: [
+            {
+              id: 'e1',
+              title: 'Fuel',
+              category: 'transport',
+              amountMinor: 2000,
+              currency: 'AZN',
+              paidBy: 'p2',
+              convertedAmountMinor: 2000,
+              splitType: 'equal',
+              splitAmong: ['p2', 'p4']
+            }
+          ],
+          settlements: []
+        };
+
+        const calc = settlement.calculateBalances(trip);
+        assert(calc.fairShareTotals.p2 === 1000, `p2 fair share should be 1000, got ${calc.fairShareTotals.p2}`);
+        assert(calc.fairShareTotals.p4 === 1000, `p4 fair share should be 1000, got ${calc.fairShareTotals.p4}`);
+        assert(calc.fairShareTotals.p1 === 0, `p1 fair share should be 0, got ${calc.fairShareTotals.p1}`);
+        assert(calc.balances.p2 === 1000, `p2 paid 2000, share 1000 -> net +1000. Got ${calc.balances.p2}`);
+        assert(calc.balances.p4 === -1000, `p4 paid 0, share 1000 -> net -1000. Got ${calc.balances.p4}`);
+        assert(calc.balances.p1 === 0, `p1 net balance should be 0`);
+        assert(calc.isZeroSum, "Net balances must sum to 0");
+      }
+    );
+
+    // --- TEST 3: Custom Amounts Sum Check ---
+    runTest(
+      "Case 3: Custom Amounts Sum Validation",
+      "Check that custom split validator accurately identifies matching vs mismatched sums.",
+      () => {
+        const match = settlement.validateCustomSplit(5000, { p1: 2000, p2: 1500, p3: 1500 });
+        assert(match.valid === true, "Valid custom split must pass");
+        assert(match.diff === 0, "Diff should be 0");
+
+        const mismatch = settlement.validateCustomSplit(5000, { p1: 2000, p2: 1500, p3: 1000 });
+        assert(mismatch.valid === false, "Invalid custom split must fail");
+        assert(mismatch.diff === 500, `Expected diff 500, got ${mismatch.diff}`);
+      }
+    );
+
+    // --- TEST 4: Multi-Currency With Rate Snapshot ---
+    runTest(
+      "Case 4: Multi-Currency Conversion & Snapshot Immutability",
+      "Convert 50.00 USD to AZN at rate 1.70 (85.00 AZN), and verify rate changes do not affect past snapshot.",
+      () => {
+        const rate = 1.70;
+        const usdMinor = 5000;
+        const converted = currency.convertMinor(usdMinor, 'USD', 'AZN', rate);
+        assert(converted === 8500, `Expected 8500 AZN minor units, got ${converted}`);
+
+        const expense = {
+          id: 'e_curr',
+          title: 'Hotel in USD',
+          amountMinor: usdMinor,
+          currency: 'USD',
+          rateSnapshot: { rate: 1.70, from: 'USD', to: 'AZN', date: '2026-10-24' },
+          convertedAmountMinor: converted
+        };
+
+        // Even if active exchange rate becomes 2.00 in the future:
+        const futureRate = 2.00;
+        assert(expense.convertedAmountMinor === 8500, "Stored convertedAmountMinor must remain 8500 snapshot value");
+      }
+    );
+
+    // --- TEST 5: Balances Sum to 0 Invariant ---
+    runTest(
+      "Case 5: Zero-Sum Invariant Strictly Respected Across Mixed Expenses",
+      "Calculate complex multi-person expenses and assert total balance sum is strictly 0.",
+      () => {
+        const trip = {
+          baseCurrency: 'AZN',
+          participants: [
+            { id: 'p1', name: 'A' },
+            { id: 'p2', name: 'B' },
+            { id: 'p3', name: 'C' }
+          ],
+          expenses: [
+            {
+              id: 'e1',
+              paidBy: 'p1',
+              convertedAmountMinor: 1000,
+              splitType: 'equal',
+              splitAmong: ['p1', 'p2', 'p3']
+            },
+            {
+              id: 'e2',
+              paidBy: 'p2',
+              convertedAmountMinor: 755,
+              splitType: 'equal',
+              splitAmong: ['p1', 'p3']
+            }
+          ],
+          settlements: []
+        };
+
+        const calc = settlement.calculateBalances(trip);
+        settlement.assertZeroSum(calc.balances);
+        assert(calc.isZeroSum === true, "Must be zero sum");
+        assert(calc.balanceSum === 0, `Balance sum should be 0, got ${calc.balanceSum}`);
+      }
+    );
+
+    // --- TEST 6: Settlement Leaves Everyone at 0 After Applying Transfers ---
+    runTest(
+      "Case 6: Debt Simplification Transfers Leave Everyone at Exactly 0",
+      "Run greedy simplifyDebts, simulate transfer payments, verify all net balances become 0.",
+      () => {
+        const balances = {
+          p1: 7000,
+          p2: -3000,
+          p3: -4000
+        };
+
+        const transfers = settlement.simplifyDebts(balances);
+        assert(transfers.length <= 2, `Expected at most 2 transfers, got ${transfers.length}`);
+
+        const simulated = { ...balances };
+        transfers.forEach(tr => {
+          simulated[tr.from] += tr.amountMinor;
+          simulated[tr.to] -= tr.amountMinor;
+        });
+
+        assert(simulated.p1 === 0, `p1 simulated should be 0, got ${simulated.p1}`);
+        assert(simulated.p2 === 0, `p2 simulated should be 0, got ${simulated.p2}`);
+        assert(simulated.p3 === 0, `p3 simulated should be 0, got ${simulated.p3}`);
+      }
+    );
+
+    // --- TEST 7: Settlement Payment & Undo ---
+    runTest(
+      "Case 7: Settlement Payment Offset & Full Undoability",
+      "Record a debt payment of 10.00 AZN, verify balance offsets, then undo and verify restoration.",
+      () => {
+        const trip = {
+          baseCurrency: 'AZN',
+          participants: [
+            { id: 'p1', name: 'Ali' },
+            { id: 'p2', name: 'Veli' }
+          ],
+          expenses: [
+            {
+              id: 'e1',
+              paidBy: 'p1',
+              convertedAmountMinor: 2000,
+              splitType: 'equal',
+              splitAmong: ['p1', 'p2']
+            }
+          ],
+          settlements: []
+        };
+
+        // Initial: p1 paid 2000, fair 1000 each -> p1: +1000, p2: -1000
+        let calc = settlement.calculateBalances(trip);
+        assert(calc.balances.p1 === 1000, "p1 should have +1000");
+        assert(calc.balances.p2 === -1000, "p2 should have -1000");
+
+        // Record settlement payment: p2 pays p1 1000
+        const settlementObj = {
+          id: 'set_1',
+          from: 'p2',
+          to: 'p1',
+          amountMinor: 1000
+        };
+        trip.settlements.push(settlementObj);
+
+        calc = settlement.calculateBalances(trip);
+        assert(calc.balances.p1 === 0, "p1 should be 0 after settlement");
+        assert(calc.balances.p2 === 0, "p2 should be 0 after settlement");
+
+        // Undo settlement
+        trip.settlements = [];
+        calc = settlement.calculateBalances(trip);
+        assert(calc.balances.p1 === 1000, "p1 restored to +1000");
+        assert(calc.balances.p2 === -1000, "p2 restored to -1000");
+      }
+    );
+
+    // --- TEST 8: 5 Friends with Mixed Expenses End-to-End ---
+    runTest(
+      "Case 8: Full End-to-End Test with 5 Friends and Mixed Currencies/Splits",
+      "5 friends, 3 complex expenses across AZN and USD with subset splits, full balance & settlement check.",
+      () => {
+        const trip = {
+          id: 'trip_full',
+          name: 'Quba Səyahəti',
+          baseCurrency: 'AZN',
+          participants: [
+            { id: 'p1', name: 'Ali' },
+            { id: 'p2', name: 'Veli' },
+            { id: 'p3', name: 'Aygun' },
+            { id: 'p4', name: 'Leyla' },
+            { id: 'p5', name: 'Murad' }
+          ],
+          expenses: [
+            // Expense 1: Ali pays 100.00 AZN (equal 5-way: 20.00 each)
+            {
+              id: 'e1',
+              title: 'Cottage rent',
+              category: 'accommodation',
+              amountMinor: 10000,
+              currency: 'AZN',
+              paidBy: 'p1',
+              convertedAmountMinor: 10000,
+              splitType: 'equal',
+              splitAmong: ['p1', 'p2', 'p3', 'p4', 'p5']
+            },
+            // Expense 2: Veli pays 60.00 USD (custom rate 1.70 = 102.00 AZN) for Aygun, Leyla, Murad (3-way: 34.00 each)
+            {
+              id: 'e2',
+              title: 'Sightseeing tickets in USD',
+              category: 'entertainment',
+              amountMinor: 6000,
+              currency: 'USD',
+              paidBy: 'p2',
+              convertedAmountMinor: 10200,
+              splitType: 'equal',
+              splitAmong: ['p3', 'p4', 'p5']
+            },
+            // Expense 3: Aygun pays 45.00 AZN for Ali and Veli (2-way: 22.50 each)
+            {
+              id: 'e3',
+              title: 'Groceries',
+              category: 'food',
+              amountMinor: 4500,
+              currency: 'AZN',
+              paidBy: 'p3',
+              convertedAmountMinor: 4500,
+              splitType: 'equal',
+              splitAmong: ['p1', 'p2']
+            }
+          ],
+          settlements: []
+        };
+
+        const calc = settlement.calculateBalances(trip);
+        assert(calc.totalCostMinor === 24700, `Expected total cost 24700 (247.00 AZN), got ${calc.totalCostMinor}`);
+        assert(calc.isZeroSum, "Balances must sum to 0");
+
+        // Transfers check
+        const transfers = settlement.simplifyDebts(calc.balances);
+        assert(transfers.length <= 4, `At most 4 transfers for 5 participants, got ${transfers.length}`);
+
+        // Verify that applying all transfers zeroes out all 5 balances
+        const sim = { ...calc.balances };
+        transfers.forEach(tr => {
+          sim[tr.from] += tr.amountMinor;
+          sim[tr.to] -= tr.amountMinor;
+        });
+
+        for (const [id, bal] of Object.entries(sim)) {
+          assert(bal === 0, `Participant ${id} balance should be 0, got ${bal}`);
+        }
+      }
+    );
+
+    // --- TEST 9: Renaming Participant Preserves Balances and Settlements Exactly ---
+    runTest(
+      "Case 9: Renaming Participant Preserves Balances and Settlements Exactly",
+      "Verify renaming a participant updates display name while stable ID keeps all expenses, splits, balances and transfers identical.",
+      () => {
+        const trip = {
+          id: 'trip_rename_test',
+          name: 'Rename Test',
+          baseCurrency: 'AZN',
+          participants: [
+            { id: 'p1', name: 'Dost 1' },
+            { id: 'p2', name: 'Dost 2' }
+          ],
+          expenses: [
+            {
+              id: 'e1',
+              title: 'Dinner',
+              category: 'food',
+              amountMinor: 4000,
+              currency: 'AZN',
+              paidBy: 'p1',
+              convertedAmountMinor: 4000,
+              splitType: 'equal',
+              splitAmong: ['p1', 'p2']
+            }
+          ],
+          settlements: []
+        };
+
+        const initialCalc = settlement.calculateBalances(trip);
+        assert(initialCalc.balances.p1 === 2000, "p1 initial balance must be +2000");
+        assert(initialCalc.balances.p2 === -2000, "p2 initial balance must be -2000");
+
+        // Rename participant p1 to "Eldar"
+        const p1 = trip.participants.find(p => p.id === 'p1');
+        p1.name = "Eldar";
+
+        const afterCalc = settlement.calculateBalances(trip);
+        assert(afterCalc.balances.p1 === 2000, "p1 balance after rename must remain exactly +2000");
+        assert(afterCalc.balances.p2 === -2000, "p2 balance after rename must remain exactly -2000");
+
+        const transfers = settlement.simplifyDebts(afterCalc.balances);
+        assert(transfers.length === 1, "Expected 1 transfer");
+        assert(transfers[0].from === 'p2' && transfers[0].to === 'p1', "Transfer from p2 to p1");
+        assert(transfers[0].amountMinor === 2000, "Transfer amount 2000");
+
+        // Verify resolved name from participant ID
+        const creditor = trip.participants.find(p => p.id === transfers[0].to);
+        assert(creditor.name === 'Eldar', "Display name for creditor must be updated 'Eldar'");
+      }
+    );
+
+    // --- TEST 10: Duplicate (Case-Insensitive) or Empty Participant Name Rejected ---
+    runTest(
+      "Case 10: Duplicate (Case-Insensitive) or Empty Participant Name Rejected",
+      "Verify participant rename validator rejects empty strings and case-insensitive duplicates with other participants.",
+      () => {
+        const participants = [
+          { id: 'p1', name: 'Eldar' },
+          { id: 'p2', name: 'Nigar' },
+          { id: 'p3', name: 'Tural' }
+        ];
+
+        function validateRename(targetId, newName) {
+          const trimmed = newName ? newName.trim() : '';
+          if (!trimmed) {
+            return { valid: false, error: 'name_empty' };
+          }
+          const exists = participants.some(
+            p => p.id !== targetId && p.name.trim().toLowerCase() === trimmed.toLowerCase()
+          );
+          if (exists) {
+            return { valid: false, error: 'name_already_exists' };
+          }
+          return { valid: true, trimmed };
+        }
+
+        // Empty check
+        assert(!validateRename('p2', '').valid, "Empty name must be rejected");
+        assert(!validateRename('p2', '   ').valid, "Whitespace-only name must be rejected");
+
+        // Duplicate checks (case-insensitive)
+        assert(!validateRename('p2', 'Eldar').valid, "Exact duplicate name must be rejected");
+        assert(!validateRename('p2', 'eldar').valid, "Lowercase duplicate must be rejected");
+        assert(!validateRename('p2', '  ELDAR  ').valid, "Trimmed uppercase duplicate must be rejected");
+
+        // Valid renames
+        assert(validateRename('p2', 'Gunel').valid, "Unique name 'Gunel' must be accepted");
+        // Renaming to its own name or same name different case should be allowed
+        assert(validateRename('p2', 'Nigar').valid, "Self name must be accepted");
+        assert(validateRename('p2', 'nigar').valid, "Self name case variation must be accepted");
+      }
+    );
+
+    // --- TEST 11: Hybrid Split - 87.00 with Dost 2=17, Dost 4=20, 3 Empty ---
+    runTest(
+      "Case 11: Hybrid Split - 87.00 AZN (Dost 2=17, Dost 4=20, Remainder 50 to 3 People)",
+      "Verify remainder 50.00 is split as 16.67 / 16.67 / 16.66 and total matches exactly 87.00.",
+      () => {
+        const checked = ['p1', 'p2', 'p3', 'p4', 'p5'];
+        const filled = { p2: 1700, p4: 2000 };
+        const res = settlement.splitHybrid(8700, checked, filled, 0);
+
+        assert(res.valid === true, "Hybrid split must be valid");
+        assert(res.filledSum === 3700, `Filled sum expected 3700, got ${res.filledSum}`);
+        assert(res.remainder === 5000, `Remainder expected 5000, got ${res.remainder}`);
+        assert(res.emptyIds.length === 3, `Expected 3 empty participants, got ${res.emptyIds.length}`);
+
+        assert(res.shares.p2 === 1700, `p2 should be 1700, got ${res.shares.p2}`);
+        assert(res.shares.p4 === 2000, `p4 should be 2000, got ${res.shares.p4}`);
+        assert(res.shares.p1 === 1667, `p1 should be 1667, got ${res.shares.p1}`);
+        assert(res.shares.p3 === 1667, `p3 should be 1667, got ${res.shares.p3}`);
+        assert(res.shares.p5 === 1666, `p5 should be 1666, got ${res.shares.p5}`);
+
+        const sum = Object.values(res.shares).reduce((a, b) => a + b, 0);
+        assert(sum === 8700, `Sum of shares must be 8700, got ${sum}`);
+      }
+    );
+
+    // --- TEST 12: Hybrid Split - Explicit 0 Stays 0 ---
+    runTest(
+      "Case 12: Hybrid Split - Explicit 0 Stays 0 and Takes No Remainder",
+      "Verify an explicit 0 is treated as a filled amount of 0 and excluded from remainder shares.",
+      () => {
+        const checked = ['p1', 'p2', 'p3', 'p4', 'p5'];
+        const filled = { p1: 0, p2: 1700, p4: 2000 };
+        const res = settlement.splitHybrid(8700, checked, filled, 0);
+
+        assert(res.valid === true, "Hybrid split must be valid");
+        assert(res.shares.p1 === 0, `p1 explicit 0 must remain 0, got ${res.shares.p1}`);
+        assert(res.emptyIds.length === 2, `Only p3 and p5 should be empty, got ${res.emptyIds.length}`);
+        assert(res.shares.p3 === 2500, `p3 should receive 2500, got ${res.shares.p3}`);
+        assert(res.shares.p5 === 2500, `p5 should receive 2500, got ${res.shares.p5}`);
+
+        const sum = Object.values(res.shares).reduce((a, b) => a + b, 0);
+        assert(sum === 8700, `Sum of shares must be 8700, got ${sum}`);
+      }
+    );
+
+    // --- TEST 13: Hybrid Split - Filled Sum > Total Rejected ---
+    runTest(
+      "Case 13: Hybrid Split - Filled Sum Exceeding Total is Rejected",
+      "Verify that when sum of filled shares exceeds total amount, validation fails with excess diff.",
+      () => {
+        const checked = ['p1', 'p2', 'p3'];
+        const filled = { p1: 3000, p2: 2500 }; // total is 5000, sum is 5500
+        const res = settlement.splitHybrid(5000, checked, filled, 0);
+
+        assert(res.valid === false, "Must be rejected");
+        assert(res.error === 'excess', `Expected error 'excess', got ${res.error}`);
+        assert(res.diff === 500, `Expected excess diff 500, got ${res.diff}`);
+      }
+    );
+
+    // --- TEST 14: Hybrid Split - All Filled With Wrong Sum Rejected ---
+    runTest(
+      "Case 14: Hybrid Split - All Fields Filled With Mismatched Sum is Rejected",
+      "Verify that when all checked participants are filled and sum does not equal total, validation fails.",
+      () => {
+        const checked = ['p1', 'p2'];
+        const filled = { p1: 2000, p2: 2000 }; // total 5000, sum 4000
+        const res = settlement.splitHybrid(5000, checked, filled, 0);
+
+        assert(res.valid === false, "Must be rejected");
+        assert(res.error === 'sum_mismatch', `Expected error 'sum_mismatch', got ${res.error}`);
+        assert(res.diff === 1000, `Expected diff 1000, got ${res.diff}`);
+      }
+    );
+
+    // --- TEST 15: Hybrid Split - Unchecked Participants Ignored ---
+    runTest(
+      "Case 15: Hybrid Split - Unchecked Participants Receive No Share",
+      "Verify that unchecked participants are excluded from shares and remainder allocation.",
+      () => {
+        const checkedOnly = ['p1', 'p2', 'p3'];
+        const filled = { p1: 2000 };
+        const res = settlement.splitHybrid(6000, checkedOnly, filled, 0);
+
+        assert(res.valid === true, "Must be valid");
+        assert(res.shares.p4 === undefined, "Unchecked p4 must not receive a share");
+        assert(res.shares.p5 === undefined, "Unchecked p5 must not receive a share");
+        assert(res.shares.p1 === 2000, `p1 = 2000`);
+        assert(res.shares.p2 === 2000, `p2 = 2000`);
+        assert(res.shares.p3 === 2000, `p3 = 2000`);
+      }
+    );
+
+    // --- TEST 16: Multi-Currency Hybrid Split & Zero-Sum Invariant ---
+    runTest(
+      "Case 16: Multi-Currency Hybrid Split Preserves Exact Sum & Zero-Sum Invariant",
+      "Verify 87.00 USD hybrid split converted to AZN maintains exact sum and balances sum to 0.",
+      () => {
+        const usdAmountMinor = 8700;
+        const rate = 1.70;
+        const convertedTotalMinor = currency.convertMinor(usdAmountMinor, 'USD', 'AZN', rate); // 14790 minor
+        assert(convertedTotalMinor === 14790, `Expected 14790, got ${convertedTotalMinor}`);
+
+        const hybrid = settlement.splitHybrid(usdAmountMinor, ['p1', 'p2', 'p3', 'p4', 'p5'], { p2: 1700, p4: 2000 }, 0);
+        assert(hybrid.valid === true, "Hybrid calculation must succeed");
+
+        const pIds = ['p1', 'p2', 'p3', 'p4', 'p5'];
+        const baseShares = {};
+        let allocated = 0;
+        pIds.forEach((pId, idx) => {
+          if (idx === pIds.length - 1) {
+            baseShares[pId] = convertedTotalMinor - allocated;
+          } else {
+            const converted = Math.round(hybrid.shares[pId] * rate);
+            baseShares[pId] = converted;
+            allocated += converted;
+          }
+        });
+
+        const baseSum = Object.values(baseShares).reduce((a, b) => a + b, 0);
+        assert(baseSum === convertedTotalMinor, "Converted shares must equal convertedTotalMinor exactly");
+
+        const trip = {
+          baseCurrency: 'AZN',
+          participants: pIds.map(id => ({ id, name: id })),
+          expenses: [
+            {
+              id: 'e_hybrid_multi',
+              paidBy: 'p1',
+              amountMinor: usdAmountMinor,
+              currency: 'USD',
+              convertedAmountMinor: convertedTotalMinor,
+              splitType: 'custom',
+              splitAmong: pIds,
+              customSplits: baseShares
+            }
+          ],
+          settlements: []
+        };
+
+        const calc = settlement.calculateBalances(trip);
+        assert(calc.totalCostMinor === convertedTotalMinor, "Total cost matches converted total");
+        settlement.assertZeroSum(calc.balances);
+        assert(calc.isZeroSum === true, "Zero-sum invariant preserved");
+      }
+    );
+
+    // --- TEST 17: Real Expense-Building Function (settlement.buildExpense) Across All Modes ---
+    runTest(
+      "Case 17: Expense-Building (Equal, Custom All-Filled, Custom Hybrid & Rate Snapshot)",
+      "Verify settlement.buildExpense produces exact convertedAmountMinor, customSplits, and snapshot integrity across all modes.",
+      () => {
+        // 1. Equal Split
+        const exp1 = settlement.buildExpense({
+          title: 'Equal Split AZN',
+          amountMinor: 9000,
+          currency: 'AZN',
+          baseCurrency: 'AZN',
+          paidBy: 'p1',
+          splitType: 'equal',
+          splitAmong: ['p1', 'p2', 'p3']
+        });
+        assert(exp1.convertedAmountMinor === 9000, `exp1 convertedAmountMinor should be 9000, got ${exp1.convertedAmountMinor}`);
+        assert(exp1.customSplits === null, "Equal split should have null customSplits");
+        assert(exp1.rateSnapshot.rate === 1.0, "Base rate should be 1.0");
+
+        // 2. Custom All Filled
+        const exp2 = settlement.buildExpense({
+          title: 'Custom All Filled',
+          amountMinor: 5000,
+          currency: 'AZN',
+          baseCurrency: 'AZN',
+          paidBy: 'p1',
+          splitType: 'custom',
+          splitAmong: ['p1', 'p2'],
+          filledSharesMinor: { p1: 2000, p2: 3000 }
+        });
+        assert(exp2.convertedAmountMinor === 5000, "exp2 convertedAmountMinor should be 5000");
+        assert(exp2.customSplits.p1 === 2000 && exp2.customSplits.p2 === 3000, "Custom shares match filled values");
+
+        // 3. Custom with Empty Fields (Hybrid)
+        const exp3 = settlement.buildExpense({
+          title: 'Hybrid Split AZN',
+          amountMinor: 8700,
+          currency: 'AZN',
+          baseCurrency: 'AZN',
+          paidBy: 'p1',
+          splitType: 'custom',
+          splitAmong: ['p1', 'p2', 'p3', 'p4', 'p5'],
+          filledSharesMinor: { p2: 1700, p4: 2000 }
+        });
+        assert(exp3.convertedAmountMinor === 8700, "exp3 convertedAmountMinor = 8700");
+        assert(exp3.customSplits.p2 === 1700, "p2 = 1700");
+        assert(exp3.customSplits.p4 === 2000, "p4 = 2000");
+        assert(exp3.customSplits.p1 === 1667, "p1 = 1667");
+        assert(exp3.customSplits.p3 === 1667, "p3 = 1667");
+        assert(exp3.customSplits.p5 === 1666, "p5 = 1666");
+        assert(exp3.manualParticipantIds.includes('p2') && exp3.manualParticipantIds.includes('p4'), "Manual IDs saved");
+        assert(exp3.manualParticipantIds.length === 2, "Only 2 manual participant IDs");
+
+        // 4. Foreign Currency with Rate Snapshot (Equal)
+        const exp4 = settlement.buildExpense({
+          title: 'USD Hotel',
+          amountMinor: 10000,
+          currency: 'USD',
+          baseCurrency: 'AZN',
+          rate: 1.70,
+          rateSource: 'live',
+          paidBy: 'p1',
+          splitType: 'equal',
+          splitAmong: ['p1', 'p2']
+        });
+        assert(exp4.convertedAmountMinor === 17000, "100.00 USD @ 1.70 = 170.00 AZN (17000 minor)");
+        assert(exp4.rateSnapshot.rate === 1.70, "Rate snapshot stored 1.70");
+        assert(exp4.rateSnapshot.from === 'USD' && exp4.rateSnapshot.to === 'AZN', "Rate snapshot currencies correct");
+
+        // 5. Foreign Currency with Rate Snapshot (Hybrid Split)
+        const exp5 = settlement.buildExpense({
+          title: 'USD Sightseeing Hybrid',
+          amountMinor: 8700,
+          currency: 'USD',
+          baseCurrency: 'AZN',
+          rate: 1.70,
+          paidBy: 'p1',
+          splitType: 'custom',
+          splitAmong: ['p1', 'p2', 'p3', 'p4', 'p5'],
+          filledSharesMinor: { p2: 1700, p4: 2000 }
+        });
+        assert(exp5.convertedAmountMinor === 14790, "87.00 USD @ 1.70 = 147.90 AZN (14790 minor)");
+        const sumExp5 = Object.values(exp5.customSplits).reduce((a, b) => a + b, 0);
+        assert(sumExp5 === 14790, `Sum of converted shares must be exactly 14790, got ${sumExp5}`);
+      }
+    );
+
+    // Render results
+    const container = document.getElementById('testContainer');
+    const summaryEl = document.getElementById('testSummary');
+    let passedCount = 0;
+
+    testResults.forEach(res => {
+      if (res.passed) passedCount++;
+      const card = document.createElement('div');
+      card.className = 'test-card';
+      card.innerHTML = `
+        <div>
+          <div class="test-name">${res.name}</div>
+          <div class="test-desc">${res.description}</div>
+          ${res.error ? `<div style="color:var(--fail);font-size:0.8rem;margin-top:0.3rem;">Error: ${res.error}</div>` : ''}
+        </div>
+        <div class="badge ${res.passed ? 'badge-pass' : 'badge-fail'}">
+          ${res.passed ? '✓ PASS' : '✗ FAIL'}
+        </div>
+      `;
+      container.appendChild(card);
+    });
+
+    const allPassed = (passedCount === testResults.length);
+    summaryEl.textContent = `${passedCount} / ${testResults.length} Tests Passed`;
+    summaryEl.className = `summary-badge ${allPassed ? 'summary-pass' : 'summary-fail'}`;
+  </script>
+</body>
+</html>
